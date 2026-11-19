@@ -1,0 +1,13 @@
+venv/
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+*.pt
+*.pth
+data/*
+!data/.gitkeep
+snapshots/*
+!snapshots/.gitkeep
+models/*
+!models/.gitkeep

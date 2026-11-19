@@ -1,0 +1,19 @@
+# Core
+opencv-python
+numpy
+pillow
+requests
+
+# Step 7+8: YOLO26m + ByteTrack (YOLO26 needs a recent version: pip install -U ultralytics)
+ultralytics
+
+# Steps 10+11: CLIP zero-shot (make, model, type, colour, decorations)
+# The model itself is downloaded once by transformers and cached locally.
+torch
+torchvision
+transformers
+
+# Step 12: PaddleOCR (number plate text)
+# Install the CPU build of paddlepaddle, or the GPU build that matches your CUDA version.
+paddlepaddle
+paddleocr

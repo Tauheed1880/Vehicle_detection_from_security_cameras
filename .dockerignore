@@ -1,0 +1,22 @@
+# Keep the image small: these are either installed inside the image or
+# bind-mounted at runtime, never copied into it.
+venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# Model weights are bind-mounted at runtime (./models -> /app/models).
+models/
+
+# Input videos and outputs are bind-mounted at runtime.
+data/
+snapshots/
+records.json
+ingest_state.json
+
+.git/
+.gitignore
+README.md
+pytest.ini
+requirements-dev.txt
+tests/

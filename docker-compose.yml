@@ -1,0 +1,34 @@
+# Single container: the pipeline (main.py) and the live ingest uploader thread.
+#
+#   docker compose up --build -d      # build + start in the background
+#   docker compose logs -f worker     # watch the output
+#   docker compose down               # stop and remove the container
+services:
+  worker:
+    build: .
+    image: stage2-ai-worker
+    container_name: stage2-worker
+    command: ["python", "main.py", "--headless"]
+    # On "docker compose down" the container gets SIGTERM; give main.py time to
+    # drain the queue and flush records.json before Docker force-kills it.
+    stop_grace_period: 30s
+    environment:
+      # The ingest API runs on the laptop itself (the host), not inside the
+      # container, so "localhost" would be wrong here. host.docker.internal =
+      # the host. (If the API sits on ANOTHER machine, put its LAN IP instead,
+      # e.g. http://10.1.19.78:3000/api/detections/ingest.)
+      INGEST_URL: "http://host.docker.internal:3000/api/detections/ingest"
+      INGEST_ENABLED: "1"
+      # Which video to process. Any file inside ./data (default: data/traffic.mp4).
+      # VIDEO_SOURCE: "data/myclip.mp4"
+      # use the real camera later:
+      # VIDEO_SOURCE: "rtsp://host.docker.internal:8554/traffic"
+    extra_hosts:
+      # Makes host.docker.internal work on Linux too (Windows/Mac have it already).
+      - "host.docker.internal:host-gateway"
+    volumes:
+      # The whole project folder is shared with the container, so:
+      #   * drop a video into ./data on Windows -> the container sees it at once
+      #   * records.json + snapshots/ are written straight back onto your disk
+      #   * models/ (yolo26m.pt, license_plate_detector.pt) are used as-is
+      - ./:/app
