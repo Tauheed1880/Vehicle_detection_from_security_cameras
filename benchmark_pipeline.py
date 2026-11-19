@@ -4,9 +4,8 @@ FPS Benchmark for the Stage-2 AI pipeline.
 Strategy (fast, non-destructive):
   Phase 1 - Video Read:    pure cv2.read loop over all frames       (~2s)
   Phase 2 - YOLO+Track:   50-frame sample with live progress       (~30-120s on CPU)
-  Phase 3 - CLIP:         all snapshot crops (make/model/type/colour/decorations)
-  Phase 4 - Plate/OCR:    10-crop sample (slowest stage, CPU OCR)  (~30-120s on CPU)
-  Phase 5 - Annotate:     draw_detections on 50 blank frames       (<1s)
+  Phase 3 - Plate/OCR:    10-crop sample (slowest stage, CPU OCR)  (~30-120s on CPU)
+  Phase 4 - Annotate:     draw_detections on 50 blank frames       (<1s)
 
 Nothing in src/ is modified.
 Results are flushed immediately so progress is visible.
@@ -22,7 +21,6 @@ import config
 from src.stream_reader import probe_stream
 from src.detector_tracker import DetectorTracker
 from src.annotator import draw_detections
-from src.analyzers.clip_classifier import ClipClassifier
 from src.analyzers.plate import PlateReader
 
 SEP = "=" * 72
@@ -120,40 +118,16 @@ print(f"  YOLO FPS    : {yolo_fps:.2f}")
 last_frame = frame
 last_detections = detections
 
-# ── PHASE 3 – CLIP zero-shot classification ─────────────────────────────────
-hdr("PHASE 3 — CLIP zero-shot (make/model/type/colour/decorations)")
+# ── Snapshot crops (loaded once, used by the plate phase below) ──────────────
 snap_dir = config.SNAPSHOT_DIR
 snap_files = sorted(glob.glob(os.path.join(snap_dir, "*.jpg")))
-print("  Loading CLIP model (downloads once, then cached)...", flush=True)
-t0 = time.perf_counter()
-clip = ClipClassifier(config.CLIP_MODEL_NAME, min_conf=config.CLIP_MIN_CONF,
-                      device=config.CLIP_DEVICE, cache_dir=config.CLIP_CACHE_DIR,
-                      decoration_region=config.CLIP_DECORATION_REGION)
-clip._load()
-print(f"  Model loaded in {time.perf_counter()-t0:.2f}s  available={clip._available}")
+crops = [cv2.imread(f) for f in snap_files]
+crops = [c for c in crops if c is not None]
+print(f"  Snapshot crops: {len(crops)} (from {snap_dir})")
 
-if not snap_files:
-    print("  No snapshot crops found — skipping (no vehicles were analysed yet)")
-    clip_times = []
-else:
-    crops = [cv2.imread(f) for f in snap_files]
-    crops = [c for c in crops if c is not None]
-    clip_times = []
-    t_phase = time.perf_counter()
-    for crop in crops:
-        t0 = time.perf_counter()
-        clip.classify(crop)
-        clip_times.append(time.perf_counter() - t0)
-    phase3_elapsed = time.perf_counter() - t_phase
-    print(f"  Crops tested: {len(clip_times)} (from {snap_dir})")
-    stats("CLIP classify per crop", clip_times)
-    print(f"  CLIP FPS    : {len(clip_times)/phase3_elapsed:.2f}")
-    if not clip._available:
-        print("  (CLIP not available → all calls returned instantly with 'unknown')")
-
-# ── PHASE 4 – Plate / PaddleOCR ─────────────────────────────────────────────
+# ── PHASE 3 – Plate / PaddleOCR ─────────────────────────────────────────────
 PLATE_SAMPLE = min(10, len(snap_files)) if snap_files else 0
-hdr(f"PHASE 4 — Plate / PaddleOCR ({PLATE_SAMPLE}-crop sample)")
+hdr(f"PHASE 3 — Plate / PaddleOCR ({PLATE_SAMPLE}-crop sample)")
 if PLATE_SAMPLE == 0:
     print("  No snapshot crops — skipping")
     plate_times = []
@@ -187,8 +161,8 @@ else:
     if plate_reader._detector is None:
         print("  (no plate detector weights → bottom-half crop fallback used)")
 
-# ── PHASE 5 – Annotation drawing ────────────────────────────────────────────
-hdr("PHASE 5 — Annotation / draw_detections (50 synthetic frames)")
+# ── PHASE 4 – Annotation drawing ────────────────────────────────────────────
+hdr("PHASE 4 — Annotation / draw_detections (50 synthetic frames)")
 ann_times = []
 done_ids = set(range(10))
 fake_dets = [{"track_id": i, "box": [100, 100, 300, 300], "class_name": "car", "conf": 0.9}
@@ -218,9 +192,8 @@ def row(label, times, note=""):
 
 row("1. Video Read (cv2.read)",         read_times,   "MP4")
 row("2. YOLO detect + ByteTrack",       det_times,    f"{YOLO_SAMPLE}-frame sample")
-row("3. CLIP zero-shot",                 clip_times,   "make/model/type/colour/decoration")
-row("4. Plate / PaddleOCR",             plate_times,  f"{PLATE_SAMPLE}-crop sample")
-row("5. Annotation (draw boxes)",       ann_times,    "50 synthetic frames")
+row("3. Plate / PaddleOCR",             plate_times,  f"{PLATE_SAMPLE}-crop sample")
+row("4. Annotation (draw boxes)",       ann_times,    "50 synthetic frames")
 
 print()
 print(f"  Input video native FPS : {input_fps:.2f}")
@@ -242,7 +215,7 @@ for i, (name, avg) in enumerate(all_stages, 1):
     print(f"    {i}. {name:35s}  {avg*1000:7.1f}ms  {bar}")
 
 print()
-print("  NOTE: CLIP and Plate run IN PARALLEL in a background")
-print("  thread (AnalysisWorker) and do NOT block the main video loop.")
+print("  NOTE: Plate/OCR runs in a background thread (AnalysisWorker)")
+print("  and does NOT block the main video loop.")
 print("  The main-loop bottleneck is YOLO detect+track (runs synchronously).")
 print(SEP)

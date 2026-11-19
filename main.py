@@ -4,7 +4,7 @@ Stage 2 - AI Processing: frames -> vehicle properties.
     6  OpenCV reads frame
     7  YOLO26m detects vehicles
     8  ByteTrack gives each vehicle a track ID
-    9  New vehicle? (only once per ID)  -> worker: CLIP + PaddleOCR
+    9  New vehicle? (only once per ID)  -> worker: PaddleOCR
     13 Build record, 14 POST to backend
     A  Draw boxes and show / publish the annotated video
 
@@ -21,7 +21,6 @@ import cv2
 
 import config
 from post_records import Uploader
-from src.analyzers.clip_classifier import ClipClassifier
 from src.analyzers.plate import PlateReader
 from src.annotator import FFmpegPublisher, draw_detections
 from src.backend_client import send_record
@@ -127,9 +126,6 @@ def main():
                                tracker=config.TRACKER, device=config.DEVICE,
                                agnostic_nms=config.AGNOSTIC_NMS)
     registry = VehicleRegistry(track_timeout=config.TRACK_TIMEOUT_FRAMES)
-    clip = ClipClassifier(config.CLIP_MODEL_NAME, min_conf=config.CLIP_MIN_CONF,
-                          device=config.CLIP_DEVICE, cache_dir=config.CLIP_CACHE_DIR,
-                          decoration_region=config.CLIP_DECORATION_REGION)
     plate_reader = PlateReader(config.PLATE_DETECTOR_WEIGHTS,
                                min_conf=config.PLATE_MIN_CONF, lang=config.PADDLE_LANG,
                                detector_conf=config.PLATE_DETECTOR_CONF)
@@ -140,7 +136,7 @@ def main():
             record, jpg, config.BACKEND_URL,
             timeout=config.BACKEND_TIMEOUT_SEC, retries=config.BACKEND_RETRIES)
 
-    worker = AnalysisWorker(clip, plate_reader, send_fn,
+    worker = AnalysisWorker(plate_reader, send_fn,
                             camera_id=config.CAMERA_ID,
                             snapshot_dir=config.SNAPSHOT_DIR,
                             jpeg_quality=config.JPEG_QUALITY,

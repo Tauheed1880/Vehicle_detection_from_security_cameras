@@ -1,18 +1,20 @@
 """
 Step 13 - Build the vehicle record.
 
-Input : detection dict (from 2A) + crop + analysis results (from 10/11 CLIP and 12 plate)
+Input : detection dict (from 2A) + crop + analysis results (from 12 plate)
 Output: (record dict, JPEG bytes)
 
-`type` is the CLIP body type (Sedan/SUV/...); the raw YOLO class is kept in
-`detector_class`. Make/model/colour/decorations come from CLIP.
+`detector_class` holds the raw YOLO class. Make/model/type/colour/decorations
+have no model behind them, so they stay "unknown".
 """
 from datetime import datetime
 from pathlib import Path
 
 import cv2
 
-from src.analyzers.clip_classifier import UNKNOWN
+# Value used for every attribute the pipeline cannot fill in (no model yet, or a
+# vehicle that was never analysed).
+UNKNOWN = "unknown"
 
 
 def _split_time(when):

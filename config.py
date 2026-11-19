@@ -68,15 +68,6 @@ SHARPNESS_MIN = 25.0       # crops below this are not considered "ready" yet
 # guards above still apply, so a sliver is never analysed.
 RECOVERY_MIN_BOX_AREA = 4000
 
-# ---------------------------------------- Steps 10 + 11: CLIP zero-shot (ViT-B/32)
-# One model for make, model, body type, colour and decorations. Downloaded once
-# from Hugging Face and cached locally; never fine-tuned.
-CLIP_MODEL_NAME = "openai/clip-vit-base-patch32"
-CLIP_DEVICE = None               # None = automatic, or "cpu", "0" (first GPU)
-CLIP_MIN_CONF = 0.50             # below this the answer becomes "unknown"
-CLIP_CACHE_DIR = None            # None = default Hugging Face cache
-CLIP_DECORATION_REGION = 0.6     # top share of the vehicle crop used to look for stickers
-
 # ------------------------------------------------------ Step 12: plate + PaddleOCR
 # Primary: license_plate_detector.pt - a single-class ("license_plate") YOLO detector.
 # Fallback (if primary absent): bottom half of vehicle crop.

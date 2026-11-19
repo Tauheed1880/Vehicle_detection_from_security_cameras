@@ -10,19 +10,6 @@ import src.worker as worker_module
 from src.worker import AnalysisWorker
 
 
-class FakeClip:
-    def classify(self, crop):
-        return {"make": "Toyota", "model": "Corolla", "make_model_conf": 0.9,
-                "type": "Sedan", "type_conf": 0.8,
-                "colour": "white", "colour_conf": 0.7,
-                "decoration": "none", "decoration_conf": 0.95}
-
-
-class BrokenClip:
-    def classify(self, crop):
-        raise RuntimeError("CLIP exploded")
-
-
 class FakePlateReader:
     def read(self, crop):
         return "ABC-123", 0.93, crop, "Punjab"
@@ -57,18 +44,18 @@ def white_crop():
 
 def test_full_record(tmp_path):
     sent = []
-    worker = AnalysisWorker(FakeClip(), FakePlateReader(),
+    worker = AnalysisWorker(FakePlateReader(),
                             lambda rec, jpg: sent.append((rec, jpg)),
                             camera_id="cam-01", snapshot_dir=tmp_path, use_thread=False)
     assert worker.submit(DET, white_crop())
 
     record, jpg = sent[0]
     assert record["track_id"] == 12
-    assert record["type"] == "Sedan"              # CLIP body type
     assert record["detector_class"] == "car"      # raw YOLO class is kept
-    assert (record["make"], record["model"]) == ("Toyota", "Corolla")
-    assert record["colour"] == "white"
-    assert record["decoration"] == "none"
+    assert record["type"] == "unknown"            # no attribute model yet
+    assert (record["make"], record["model"]) == ("unknown", "unknown")
+    assert record["colour"] == "unknown"
+    assert record["decoration"] == "unknown"
     assert record["plate"] == "ABC-123"
     assert record["province"] == "Punjab"
     assert record["camera_id"] == "cam-01"
@@ -77,23 +64,15 @@ def test_full_record(tmp_path):
 
 
 def test_broken_plate_does_not_stop_the_record(tmp_path):
-    worker = AnalysisWorker(FakeClip(), BrokenPlateReader(), None,
+    worker = AnalysisWorker(BrokenPlateReader(), None,
                             camera_id="cam-01", snapshot_dir=tmp_path, use_thread=False)
     record = worker.analyse(DET, white_crop())
     assert record["plate"] is None
-    assert record["type"] == "Sedan"
-
-
-def test_broken_clip_does_not_stop_the_record(tmp_path):
-    worker = AnalysisWorker(BrokenClip(), FakePlateReader(), None,
-                            camera_id="cam-01", snapshot_dir=tmp_path, use_thread=False)
-    record = worker.analyse(DET, white_crop())
-    assert record["make"] == "unknown"            # CLIP failed -> unknown
-    assert record["plate"] == "ABC-123"           # plate still recorded
+    assert record["type"] == "unknown"
 
 
 def test_threaded_worker_processes_jobs(tmp_path):
-    worker = AnalysisWorker(FakeClip(), FakePlateReader(), None,
+    worker = AnalysisWorker(FakePlateReader(), None,
                             camera_id="cam-01", snapshot_dir=tmp_path, use_thread=True)
     for i in range(3):
         assert worker.submit({**DET, "track_id": i}, white_crop())
@@ -105,7 +84,7 @@ def test_threaded_worker_processes_jobs(tmp_path):
 def test_retry_overwrites_snapshot_and_sets_province(tmp_path):
     records = tmp_path / "records.json"
     reader = StagedPlateReader()
-    worker = AnalysisWorker(FakeClip(), reader, None,
+    worker = AnalysisWorker(reader, None,
                             camera_id="cam-01", snapshot_dir=tmp_path,
                             use_thread=False, records_file=records)
 
@@ -139,7 +118,7 @@ def test_retry_overwrites_snapshot_and_sets_province(tmp_path):
 
 def test_retry_does_not_touch_a_record_that_already_has_a_plate(tmp_path):
     records = tmp_path / "records.json"
-    worker = AnalysisWorker(FakeClip(), FakePlateReader(), None,
+    worker = AnalysisWorker(FakePlateReader(), None,
                             camera_id="cam-01", snapshot_dir=tmp_path,
                             use_thread=False, records_file=records)
     record = worker.analyse(DET, white_crop())
@@ -153,7 +132,7 @@ def test_retry_does_not_touch_a_record_that_already_has_a_plate(tmp_path):
 
 def test_write_records_writes_one_json_array_in_detection_order(tmp_path):
     records = tmp_path / "records.json"
-    worker = AnalysisWorker(FakeClip(), FakePlateReader(), None,
+    worker = AnalysisWorker(FakePlateReader(), None,
                             camera_id="cam-01", snapshot_dir=tmp_path,
                             use_thread=False, records_file=records)
     worker.analyse({**DET, "track_id": 3, "first_seen_frame": 30}, white_crop())
@@ -168,7 +147,7 @@ def test_write_records_writes_one_json_array_in_detection_order(tmp_path):
 
 def test_record_is_written_as_soon_as_it_is_analysed(tmp_path):
     records = tmp_path / "records.json"
-    worker = AnalysisWorker(FakeClip(), FakePlateReader(), None,
+    worker = AnalysisWorker(FakePlateReader(), None,
                             camera_id="cam-01", snapshot_dir=tmp_path,
                             use_thread=False, records_file=records)
 
@@ -182,7 +161,7 @@ def test_record_is_written_as_soon_as_it_is_analysed(tmp_path):
 def test_send_also_writes_the_local_file(tmp_path):
     records = tmp_path / "records.json"
     sent = []
-    worker = AnalysisWorker(FakeClip(), FakePlateReader(),
+    worker = AnalysisWorker(FakePlateReader(),
                             lambda rec, jpg: sent.append(rec["track_id"]),
                             camera_id="cam-01", snapshot_dir=tmp_path,
                             use_thread=False, records_file=records)
@@ -195,7 +174,7 @@ def test_send_also_writes_the_local_file(tmp_path):
 
 
 def test_record_has_split_date_and_time(tmp_path):
-    worker = AnalysisWorker(FakeClip(), FakePlateReader(), None,
+    worker = AnalysisWorker(FakePlateReader(), None,
                             camera_id="cam-01", snapshot_dir=tmp_path, use_thread=False)
     when = datetime(2026, 11, 18, 14, 5, 9)
     record = worker.analyse({**DET, "first_seen_frame": 3,
@@ -207,7 +186,7 @@ def test_record_has_split_date_and_time(tmp_path):
 
 def test_analysed_record_is_not_written_twice(tmp_path):
     records = tmp_path / "records.json"
-    worker = AnalysisWorker(FakeClip(), FakePlateReader(), None,
+    worker = AnalysisWorker(FakePlateReader(), None,
                             camera_id="cam-01", snapshot_dir=tmp_path,
                             use_thread=False, records_file=records)
     worker.analyse({**DET, "track_id": 9, "first_seen_frame": 1}, white_crop())
@@ -218,7 +197,7 @@ def test_analysed_record_is_not_written_twice(tmp_path):
 
 def test_analysed_ids_reports_tracks_with_records(tmp_path):
     records = tmp_path / "records.json"
-    worker = AnalysisWorker(FakeClip(), FakePlateReader(), None,
+    worker = AnalysisWorker(FakePlateReader(), None,
                             camera_id="cam-01", snapshot_dir=tmp_path,
                             use_thread=False, records_file=records)
     worker.analyse({**DET, "track_id": 4, "first_seen_frame": 1}, white_crop())
@@ -227,7 +206,7 @@ def test_analysed_ids_reports_tracks_with_records(tmp_path):
 
 def test_fallback_records_fill_in_missing_tracks(tmp_path):
     records = tmp_path / "records.json"
-    worker = AnalysisWorker(FakeClip(), FakePlateReader(), None,
+    worker = AnalysisWorker(FakePlateReader(), None,
                             camera_id="cam-01", snapshot_dir=tmp_path,
                             use_thread=False, records_file=records)
     worker.analyse({**DET, "track_id": 12, "first_seen_frame": 10}, white_crop())
@@ -248,12 +227,12 @@ def test_fallback_records_fill_in_missing_tracks(tmp_path):
     assert fb["date"] == "18/11/2026" and fb["time"] == "08:01:02"
     assert fb["snapshot_file"] == "3.jpg"
     assert (tmp_path / "3.jpg").exists()
-    assert by_id[12]["type"] == "Sedan"                   # analysed one untouched
+    assert by_id[12]["type"] == "unknown"                 # analysed one untouched
 
 
 def test_fallback_skips_a_track_that_was_analysed(tmp_path):
     records = tmp_path / "records.json"
-    worker = AnalysisWorker(FakeClip(), FakePlateReader(), None,
+    worker = AnalysisWorker(FakePlateReader(), None,
                             camera_id="cam-01", snapshot_dir=tmp_path,
                             use_thread=False, records_file=records)
     worker.analyse({**DET, "track_id": 12, "first_seen_frame": 10}, white_crop())
@@ -264,12 +243,12 @@ def test_fallback_skips_a_track_that_was_analysed(tmp_path):
     assert added == 0
     data = json.loads(records.read_text(encoding="utf-8"))
     assert [r["track_id"] for r in data] == [12]
-    assert data[0]["type"] == "Sedan"                     # analysed record kept
+    assert data[0]["type"] == "unknown"                   # analysed record kept
 
 
 def test_fallback_without_crop_has_no_snapshot(tmp_path):
     records = tmp_path / "records.json"
-    worker = AnalysisWorker(FakeClip(), FakePlateReader(), None,
+    worker = AnalysisWorker(FakePlateReader(), None,
                             camera_id="cam-01", snapshot_dir=tmp_path,
                             use_thread=False, records_file=records)
     det = {"track_id": 5, "box": [0, 0, 20, 20], "class_name": "car", "conf": 0.6,
@@ -348,7 +327,7 @@ def _crop(value):
 
 
 def _worker(reader, tmp_path):
-    return AnalysisWorker(FakeClip(), reader, None,
+    return AnalysisWorker(reader, None,
                           camera_id="cam-01", snapshot_dir=tmp_path,
                           use_thread=False,
                           plate_sharpness_min=config.PLATE_SHARPNESS_MIN)

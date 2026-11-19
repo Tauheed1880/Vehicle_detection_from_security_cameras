@@ -1,8 +1,7 @@
 """
 Stage 2B - runs the heavy analysis once per new vehicle.
 
-crop -> [ CLIP (10+11: make, model, type, colour, decorations) | plate (12) ]
-      in parallel -> build record (13) -> save snapshot -> send (14)
+crop -> plate (12) -> build record (13) -> save snapshot -> send (14)
 
 With use_thread=True the work happens in a background thread, so slow models never
 freeze the video loop.
@@ -12,23 +11,20 @@ import logging
 import os
 import queue
 import threading
-from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 import cv2
 
-from src.analyzers.clip_classifier import empty_result
 from src.cropper import crop_sharpness
-from src.record_builder import build_minimal_record, build_record, save_snapshot
+from src.record_builder import UNKNOWN, build_minimal_record, build_record, save_snapshot
 
 log = logging.getLogger(__name__)
 
 
 class AnalysisWorker:
-    def __init__(self, clip_classifier, plate_reader, send_fn, camera_id, snapshot_dir,
+    def __init__(self, plate_reader, send_fn, camera_id, snapshot_dir,
                  jpeg_quality=90, use_thread=True, queue_size=16, records_file=None,
                  plate_sharpness_min=None, direct_send=None):
-        self.clip_classifier = clip_classifier
         self.plate_reader = plate_reader
         self.send_fn = send_fn              # callable(record, jpg_bytes) or None
         self.direct_send = direct_send      # callable(record) -> API-first ingest, or None
@@ -45,7 +41,6 @@ class AnalysisWorker:
         self.last_record = None
         self.processed = 0
 
-        self._pool = ThreadPoolExecutor(max_workers=2)   # CLIP + plate in parallel
         self._queue = queue.Queue(maxsize=queue_size)
         self._thread = None
         if use_thread:
@@ -136,22 +131,17 @@ class AnalysisWorker:
     def analyse(self, det, crop, candidates=None):
         crop, plate_crop, located = self._pick_crop(crop, candidates)
 
-        f_clip = self._pool.submit(self._safe, "clip",
-                                   lambda: self.clip_classifier.classify(crop),
-                                   empty_result())
-        f_plate = self._pool.submit(self._safe, "plate",
-                                    lambda: self._read_plate(crop, plate_crop, located),
-                                    (None, 0.0, None, None))
+        plate, plate_conf, _plate_crop, province = self._safe(
+            "plate", lambda: self._read_plate(crop, plate_crop, located),
+            (None, 0.0, None, None))
 
-        clip = f_clip.result()
-        plate, plate_conf, _plate_crop, province = f_plate.result()
-
+        # Vehicle attributes have no model behind them yet, so they are reported
+        # as "unknown". The record schema stays exactly the same.
         results = {
-            "make": clip["make"], "model": clip["model"],
-            "make_model_conf": clip["make_model_conf"],
-            "type": clip["type"], "type_conf": clip["type_conf"],
-            "colour": clip["colour"], "colour_conf": clip["colour_conf"],
-            "decoration": clip["decoration"], "decoration_conf": clip["decoration_conf"],
+            "make": UNKNOWN, "model": UNKNOWN, "make_model_conf": 0.0,
+            "type": UNKNOWN, "type_conf": 0.0,
+            "colour": UNKNOWN, "colour_conf": 0.0,
+            "decoration": UNKNOWN, "decoration_conf": 0.0,
             "plate": plate, "plate_conf": plate_conf, "province": province,
         }
         record, jpg = build_record(det, crop, results, self.camera_id, self.jpeg_quality)
@@ -283,7 +273,7 @@ class AnalysisWorker:
             return [tid for tid, rec in self._by_id.items() if not rec.get("plate")]
 
     def retry_plate(self, track_id, crop):
-        """Re-run plate detection ONLY (no CLIP) on a later, better crop.
+        """Re-run plate detection ONLY on a later, better crop.
 
         If a plate is found and the buffered record still has none, the record
         is updated in place AND the snapshot is overwritten with this exact
@@ -358,4 +348,3 @@ class AnalysisWorker:
         if self._thread is not None:
             self._queue.put(None)
             self._thread.join(timeout=30)
-        self._pool.shutdown(wait=False)

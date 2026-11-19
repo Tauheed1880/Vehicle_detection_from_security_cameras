@@ -28,12 +28,9 @@ RUN pip install -r requirements.txt
 COPY . .
 
 # ---- Offline warm-up -------------------------------------------------------
-# CLIP (Hugging Face) and PaddleOCR download their models on first use. Do that
-# NOW, during the build, so the running container needs NO internet. The models
-# are cached under /root (outside /app), so the ./:/app bind mount cannot hide
-# them. If this build step fails, the image would silently run without models -
-# so the step is intentionally strict (a failure fails the build).
-RUN python -c "import config; from transformers import CLIPModel, CLIPProcessor; m=config.CLIP_MODEL_NAME; CLIPModel.from_pretrained(m, cache_dir=config.CLIP_CACHE_DIR); CLIPProcessor.from_pretrained(m, cache_dir=config.CLIP_CACHE_DIR); print('CLIP cached:', m)"
+# PaddleOCR downloads its models on first use. Do that NOW, during the build, so
+# the running container needs NO internet. The models are cached under /root
+# (outside /app), so the ./:/app bind mount cannot hide them.
 
 # Paddle's oneDNN path crashes on some CPUs for this OCR model build
 # ("NotImplementedError: ConvertPirAttribute2RuntimeAttribute ... onednn_instruction.cc"),
